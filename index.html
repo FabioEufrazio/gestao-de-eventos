@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#2563EB" />
+  <title>Gestão de Eventos — Coquetelaria & Catering Management</title>
+
+  <!-- PWA Manifest & Favicon -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+
+  <!-- Fonte Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- TailwindCSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Lucide Icons (Traço Fino Minimalista) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- SheetJS (xlsx) para Importação/Exportação de Planilhas .XLSX e .CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- jsPDF para Geração de Proposta Comercial (Visão Cliente) e Checklist em PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Estilos Customizados Minimalistas -->
+  <link rel="stylesheet" href="./css/styles.css?v=4.2" />
+  <style>
+    @media (min-width: 1024px) {
+      #app-sidebar {
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        flex: 0 0 280px !important;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+        transition: width 0.2s ease, min-width 0.2s ease, flex 0.2s ease;
+      }
+      #app-main {
+        width: calc(100vw - 280px) !important;
+        max-width: calc(100vw - 280px) !important;
+        flex: 1 1 auto !important;
+        transition: width 0.2s ease, max-width 0.2s ease;
+      }
+      body.sidebar-collapsed #app-sidebar {
+        width: 72px !important;
+        min-width: 72px !important;
+        max-width: 72px !important;
+        flex: 0 0 72px !important;
+      }
+      body.sidebar-collapsed #app-main {
+        width: calc(100vw - 72px) !important;
+        max-width: calc(100vw - 72px) !important;
+      }
+    }
+    .nav-item {
+      text-align: left;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col lg:flex-row bg-[#F8FAFC] text-[#0F172A] overflow-x-hidden">
+
+  <!-- SIDEBAR LATERAL (Branco & Azul Royal) -->
+  <aside id="app-sidebar" class="sidebar-app lg:w-64 lg:min-h-screen bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col justify-between shrink-0 z-30">
+    <div>
+      <!-- Logo & Identidade Visual -->
+      <div class="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+            <i data-lucide="martini" class="w-5 h-5"></i>
+          </div>
+          <div class="sidebar-full-only min-w-0">
+            <span class="text-base font-extrabold text-slate-900 tracking-tight block leading-none truncate">Gestão</span>
+            <span class="text-xs font-bold text-blue-600 tracking-wide">de Eventos • Bar</span>
+          </div>
+        </div>
+        <span class="sidebar-full-only text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">v4.0</span>
+      </div>
+
+      <!-- Menu das Abas do Sistema -->
+      <nav class="p-2 space-y-1">
+        <button
+          type="button"
+          data-tab-btn="propostas"
+          onclick="App.navegarPara('propostas')"
+          class="nav-item active w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="1. Criar Proposta"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="file-text" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">1. Criar Proposta</span>
+          </div>
+          <span id="badge-count-propostas" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="clientes"
+          onclick="App.navegarPara('clientes')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="2. Clientes (CRM)"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="users" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">2. Clientes (CRM)</span>
+          </div>
+          <span id="badge-count-clientes" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="drinques"
+          onclick="App.navegarPara('drinques')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="3. Criação de Drinques"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="martini" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">3. Criação de Drinques</span>
+          </div>
+          <span id="badge-count-drinques" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="insumos"
+          onclick="App.navegarPara('insumos')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="4. Produtos / Insumos"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="package" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">4. Produtos / Insumos</span>
+          </div>
+          <span id="badge-count-insumos" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="servicos"
+          onclick="App.navegarPara('servicos')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="5. Serviços e Equipes"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="user-check" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">5. Serviços e Equipes</span>
+          </div>
+          <span id="badge-count-servicos" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="checklist"
+          onclick="App.navegarPara('checklist')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="6. Checklist de Compras"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="clipboard-check" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">6. Checklist de Compras</span>
+          </div>
+          <span id="badge-count-checklist" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="utensilios"
+          onclick="App.navegarPara('utensilios')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="7. Checklist de Utensílios"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="wrench" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">7. Checklist de Utensílios</span>
+          </div>
+          <span id="badge-count-utensilios" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">0</span>
+        </button>
+
+        <button
+          type="button"
+          data-tab-btn="funil"
+          onclick="App.navegarPara('funil')"
+          class="nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-slate-700"
+          title="8. Funil de Vendas"
+        >
+          <div class="flex items-center gap-3">
+            <i data-lucide="filter" class="w-4 h-4 shrink-0"></i>
+            <span class="sidebar-full-only">8. Funil de Vendas</span>
+          </div>
+          <span id="badge-count-funil" class="sidebar-full-only text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">0</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Rodapé da Sidebar: Backup & Utilitários -->
+    <div class="p-3 border-t border-slate-100 bg-slate-50/60 space-y-2">
+      <div class="sidebar-full-only text-[11px] font-semibold text-slate-500 flex items-center gap-1.5">
+        <i data-lucide="database" class="w-3.5 h-3.5 text-blue-600"></i>
+        <span>Persistência Offline Ativa</span>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          onclick="App.exportarBackupJson()"
+          class="btn-secondary py-1.5 px-2 text-[11px] justify-center"
+          title="Exportar banco de dados completo em JSON"
+        >
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span class="sidebar-full-only">Backup</span>
+        </button>
+        <label
+          class="btn-secondary py-1.5 px-2 text-[11px] justify-center cursor-pointer"
+          title="Restaurar banco de dados JSON"
+        >
+          <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+          <span class="sidebar-full-only">Restaurar</span>
+          <input type="file" accept=".json" class="hidden" onchange="App.importarBackupJson(event)" />
+        </label>
+      </div>
+      <button
+        type="button"
+        onclick="App.restaurarDadosDemonstracao()"
+        class="sidebar-full-only w-full text-[11px] text-slate-400 hover:text-blue-600 py-1 text-center transition"
+      >
+        Restaurar Dados de Exemplo
+      </button>
+    </div>
+  </aside>
+
+  <!-- Botão Seta de Recuo na Borda Divisória do Menu (Sempre Visível) -->
+  <button
+    type="button"
+    id="btn-sidebar-border-toggle"
+    onclick="App.toggleSidebar()"
+    class="sidebar-border-toggle"
+    title="Recuar / Expandir Menu Lateral"
+    aria-label="Recuar ou expandir menu"
+  >
+    <i id="btn-sidebar-border-icon" data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+  </button>
+
+  <!-- ÁREA DE CONTEÚDO PRINCIPAL -->
+  <main id="app-main" class="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden">
+    <div class="max-w-7xl mx-auto w-full">
+      <!-- Aba: Criar Nova Proposta -->
+      <section id="tab-propostas" class="tab-section active"></section>
+
+      <!-- Aba: Cadastro de Clientes -->
+      <section id="tab-clientes" class="tab-section"></section>
+
+      <!-- Aba: Criação de Drinques -->
+      <section id="tab-drinques" class="tab-section"></section>
+
+      <!-- Aba: Controle e Cadastro de Produtos/Insumos -->
+      <section id="tab-insumos" class="tab-section"></section>
+
+      <!-- Aba: Cadastro de Serviços -->
+      <section id="tab-servicos" class="tab-section"></section>
+
+      <!-- Aba: Checklist e Lista de Compras -->
+      <section id="tab-checklist" class="tab-section"></section>
+
+      <!-- Aba: Checklist de Utensílios & Equipamentos de Bar -->
+      <section id="tab-utensilios" class="tab-section"></section>
+
+      <!-- Aba: Funil de Vendas & Panorama Geral -->
+      <section id="tab-funil" class="tab-section"></section>
+    </div>
+  </main>
+
+  <!-- Container Global para Modais -->
+  <div id="modal-root"></div>
+
+  <!-- Container Global para Toasts -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <!-- Scripts dos Módulos (Etapas 1, 2 e 3 + Produção Própria) -->
+  <script src="./js/store.js?v=4.43"></script>
+  <script src="./js/aba1-insumos.js?v=4.43"></script>
+  <script src="./js/aba2-servicos.js?v=4.43"></script>
+  <script src="./js/aba3-drinques.js?v=4.43"></script>
+  <script src="./js/aba4-clientes.js?v=4.43"></script>
+  <script src="./js/aba5-propostas.js?v=4.43"></script>
+  <script src="./js/aba6-checklist.js?v=4.43"></script>
+  <script src="./js/aba7-utensilios.js?v=4.43"></script>
+  <script src="./js/aba8-funil.js?v=4.43"></script>
+  <script src="./js/pdf-generator.js?v=4.43"></script>
+  <script src="./js/app.js?v=4.43"></script>
+</body>
+</html>
