@@ -1117,23 +1117,25 @@ window.Aba8Funil = {
     const dataAtual = new Date().toISOString().slice(0, 16);
 
     const html = `
-      <div class="p-6 space-y-4 max-w-2xl mx-auto">
-        <!-- Cabeçalho do Modal -->
-        <div class="flex items-start justify-between pb-3 border-b border-slate-100">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">${p.codigo || 'PROP'}</span>
-              <h3 class="text-base font-extrabold text-slate-900">${this.esc(p.nomeEvento || 'Evento')}</h3>
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop overflow-y-auto" onclick="if(event.target === this) App.fecharModal()">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-8">
+          <div class="p-6 space-y-4">
+            <!-- Cabeçalho do Modal -->
+            <div class="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">${p.codigo || 'PROP'}</span>
+                  <h3 class="text-base font-extrabold text-slate-900">${this.esc(p.nomeEvento || 'Evento')}</h3>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  Cliente: <strong class="text-slate-800">${this.esc(cli ? cli.nome : 'Sem cliente')}</strong>
+                  ${cli && cli.contato ? ` • Tel: ${this.esc(cli.contato)}` : ''}
+                </p>
+              </div>
+              <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5">
-              Cliente: <strong class="text-slate-800">${this.esc(cli ? cli.nome : 'Sem cliente')}</strong>
-              ${cli && cli.contato ? ` • Tel: ${this.esc(cli.contato)}` : ''}
-            </p>
-          </div>
-          <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600 p-1">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
-        </div>
 
         <!-- Alternador de Abas do Modal Rápido -->
         <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
@@ -1332,6 +1334,8 @@ window.Aba8Funil = {
           </div>
         `
         }
+          </div>
+        </div>
       </div>
     `;
 

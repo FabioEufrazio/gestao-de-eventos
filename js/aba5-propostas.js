@@ -4796,91 +4796,95 @@ window.Aba5Propostas = {
     const dataAtual = new Date().toISOString().slice(0, 16);
 
     const html = `
-      <div class="p-6 space-y-4">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg ${tipoPadrao === 'ENTRADA' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} flex items-center justify-center font-bold">
-              <i data-lucide="${tipoPadrao === 'ENTRADA' ? 'arrow-down-left' : 'arrow-up-right'}" class="w-4 h-4"></i>
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop overflow-y-auto" onclick="if(event.target === this) App.fecharModal()">
+        <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden my-8">
+          <div class="p-6 space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg ${tipoPadrao === 'ENTRADA' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} flex items-center justify-center font-bold">
+                  <i data-lucide="${tipoPadrao === 'ENTRADA' ? 'arrow-down-left' : 'arrow-up-right'}" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <h3 class="text-base font-bold text-slate-900">Registrar Lançamento Financeiro</h3>
+                  <p class="text-xs text-slate-500">${p.nomeEvento || 'Proposta'} • Total: ${Store.formatCurrency(calc.valorTotal)}</p>
+                </div>
+              </div>
+              <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
             </div>
-            <div>
-              <h3 class="text-base font-bold text-slate-900">Registrar Lançamento Financeiro</h3>
-              <p class="text-xs text-slate-500">${p.nomeEvento || 'Proposta'} • Total: ${Store.formatCurrency(calc.valorTotal)}</p>
-            </div>
+
+            <form id="form-movimentacao-caixa" onsubmit="Aba5Propostas.salvarMovimentacaoCaixa(event)" class="space-y-3.5">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 mb-1">Tipo de Movimentação:</label>
+                  <select id="modal-mov-tipo" class="input-minimal text-xs font-semibold" onchange="Aba5Propostas.ajustarSugestaoMotivo(this.value)">
+                    <option value="ENTRADA" ${tipoPadrao === 'ENTRADA' ? 'selected' : ''}>🟢 Entrada (Recebimento)</option>
+                    <option value="SAIDA" ${tipoPadrao === 'SAIDA' ? 'selected' : ''}>🔴 Saída (Despesa do Evento)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 mb-1">Valor (R$):</label>
+                  <input
+                    type="number"
+                    id="modal-mov-valor"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    placeholder="0,00"
+                    value="${tipoPadrao === 'ENTRADA' && calc.faltaPagar > 0 ? (calc.totalEntradas === 0 ? Math.round(calc.valorTotal * 0.5 * 100) / 100 : calc.faltaPagar) : ''}"
+                    class="input-minimal text-xs font-mono font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Motivo / Descrição:</label>
+                <input
+                  type="text"
+                  id="modal-mov-motivo"
+                  required
+                  placeholder="${tipoPadrao === 'ENTRADA' ? 'Ex: Sinal de 50% para reserva de data' : 'Ex: Compra de gelo emergencial'}"
+                  value="${tipoPadrao === 'ENTRADA' ? (calc.totalEntradas === 0 ? 'Sinal 50% (Reserva de Data)' : 'Segunda Parcela') : 'Despesa Operacional'}"
+                  class="input-minimal text-xs"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 mb-1">Forma de Pagamento:</label>
+                  <select id="modal-mov-forma" class="input-minimal text-xs">
+                    <option value="Pix" selected>Pix</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Dinheiro">Dinheiro em Espécie</option>
+                    <option value="Transferência / TED">Transferência / TED</option>
+                    <option value="Boleto">Boleto Bancário</option>
+                    <option value="Outro">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 mb-1">Data e Hora:</label>
+                  <input
+                    type="datetime-local"
+                    id="modal-mov-datahora"
+                    value="${dataAtual}"
+                    class="input-minimal text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button type="button" onclick="App.fecharModal()" class="btn-secondary py-2 px-3 text-xs">
+                  Cancelar
+                </button>
+                <button type="submit" class="btn-primary py-2 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700">
+                  Salvar Lançamento
+                </button>
+              </div>
+            </form>
           </div>
-          <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
         </div>
-
-        <form id="form-movimentacao-caixa" onsubmit="Aba5Propostas.salvarMovimentacaoCaixa(event)" class="space-y-3.5">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Tipo de Movimentação:</label>
-              <select id="modal-mov-tipo" class="input-minimal text-xs font-semibold" onchange="Aba5Propostas.ajustarSugestaoMotivo(this.value)">
-                <option value="ENTRADA" ${tipoPadrao === 'ENTRADA' ? 'selected' : ''}>🟢 Entrada (Recebimento)</option>
-                <option value="SAIDA" ${tipoPadrao === 'SAIDA' ? 'selected' : ''}>🔴 Saída (Despesa do Evento)</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Valor (R$):</label>
-              <input
-                type="number"
-                id="modal-mov-valor"
-                step="0.01"
-                min="0.01"
-                required
-                placeholder="0,00"
-                value="${tipoPadrao === 'ENTRADA' && calc.faltaPagar > 0 ? (calc.totalEntradas === 0 ? Math.round(calc.valorTotal * 0.5 * 100) / 100 : calc.faltaPagar) : ''}"
-                class="input-minimal text-xs font-mono font-bold text-slate-900"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">Motivo / Descrição:</label>
-            <input
-              type="text"
-              id="modal-mov-motivo"
-              required
-              placeholder="${tipoPadrao === 'ENTRADA' ? 'Ex: Sinal de 50% para reserva de data' : 'Ex: Compra de gelo emergencial'}"
-              value="${tipoPadrao === 'ENTRADA' ? (calc.totalEntradas === 0 ? 'Sinal 50% (Reserva de Data)' : 'Segunda Parcela') : 'Despesa Operacional'}"
-              class="input-minimal text-xs"
-            />
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Forma de Pagamento:</label>
-              <select id="modal-mov-forma" class="input-minimal text-xs">
-                <option value="Pix" selected>Pix</option>
-                <option value="Cartão de Crédito">Cartão de Crédito</option>
-                <option value="Cartão de Débito">Cartão de Débito</option>
-                <option value="Dinheiro">Dinheiro em Espécie</option>
-                <option value="Transferência / TED">Transferência / TED</option>
-                <option value="Boleto">Boleto Bancário</option>
-                <option value="Outro">Outro</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Data e Hora:</label>
-              <input
-                type="datetime-local"
-                id="modal-mov-datahora"
-                value="${dataAtual}"
-                class="input-minimal text-xs font-mono"
-              />
-            </div>
-          </div>
-
-          <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-            <button type="button" onclick="App.fecharModal()" class="btn-secondary py-2 px-3 text-xs">
-              Cancelar
-            </button>
-            <button type="submit" class="btn-primary py-2 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700">
-              Salvar Lançamento
-            </button>
-          </div>
-        </form>
       </div>
     `;
 
