@@ -34,6 +34,8 @@ window.Aba5Propostas = {
       ajustesInsumosCoqueteis: {},
       perifericos: [],
       observacoesProposta: 'Serviço completo de coquetelaria com estrutura de bar, equipe uniformizada, insumos selecionados e cardápio personalizado.',
+      timelineNegociacao: [],
+      fluxoCaixa: [],
       criadoEm: new Date().toISOString()
     };
   },
@@ -1346,6 +1348,12 @@ window.Aba5Propostas = {
               >${p.observacoesProposta || ''}</textarea>
             </div>
           </div>
+
+          <!-- BLOCO 6: Linha do Tempo & Histórico da Negociação -->
+          ${this.renderBlocoTimelineNegociacao(p)}
+
+          <!-- BLOCO 7: Fluxo de Caixa do Evento & Gestão de Pagamentos -->
+          ${this.renderBlocoFluxoCaixa(p, consolidado)}
         </div>
 
         <!-- COLUNA DIREITA (4 cols): Resumo Financeiro (Visão Interna) & Ações -->
@@ -1435,6 +1443,42 @@ window.Aba5Propostas = {
                 `
                     : ''
                 }
+
+                ${(() => {
+                  const fc = Store.calcularFluxoCaixaProposta(p);
+                  return `
+                    <div class="mt-3 p-3 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
+                      <div class="flex items-center justify-between text-xs font-bold">
+                        <span class="text-slate-700 flex items-center gap-1.5">
+                          <i data-lucide="wallet" class="w-3.5 h-3.5 text-blue-600"></i>
+                          <span>Status de Pagamento</span>
+                        </span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          fc.statusPagamento === 'QUITADO'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : fc.statusPagamento === 'PARCIAL'
+                            ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                            : 'bg-slate-100 text-slate-600 border border-slate-300'
+                        }">
+                          ${fc.percentualPago}% Pago
+                        </span>
+                      </div>
+                      <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                        <div class="h-2 rounded-full transition-all duration-300 ${
+                          fc.statusPagamento === 'QUITADO'
+                            ? 'bg-emerald-500'
+                            : fc.statusPagamento === 'PARCIAL'
+                            ? 'bg-blue-600'
+                            : 'bg-slate-300'
+                        }" style="width: ${fc.percentualPago}%"></div>
+                      </div>
+                      <div class="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 font-medium">
+                        <span>Recebido: <strong class="text-slate-800">${Store.formatCurrency(fc.totalEntradas)}</strong></span>
+                        <span>Falta: <strong class="${fc.faltaPagar > 0 ? 'text-amber-700 font-bold' : 'text-emerald-700 font-bold'}">${Store.formatCurrency(fc.faltaPagar)}</strong></span>
+                      </div>
+                    </div>
+                  `;
+                })()}
               </div>
 
               <!-- Botões Principais -->
@@ -1618,6 +1662,9 @@ window.Aba5Propostas = {
       p.servicos = [];
     }
 
+    if (!Array.isArray(p.timelineNegociacao)) p.timelineNegociacao = [];
+    if (!Array.isArray(p.fluxoCaixa)) p.fluxoCaixa = [];
+
     // Sincronizar estado de baixa de estoque se a proposta já estiver salva
     if (p.id) {
       const salva = (Store.state.propostas || []).find((x) => x.id === p.id);
@@ -1626,6 +1673,12 @@ window.Aba5Propostas = {
         p.movimentacaoEstoque = salva.movimentacaoEstoque
           ? JSON.parse(JSON.stringify(salva.movimentacaoEstoque))
           : undefined;
+        if (Array.isArray(salva.timelineNegociacao) && p.timelineNegociacao.length === 0) {
+          p.timelineNegociacao = salva.timelineNegociacao;
+        }
+        if (Array.isArray(salva.fluxoCaixa) && p.fluxoCaixa.length === 0) {
+          p.fluxoCaixa = salva.fluxoCaixa;
+        }
       }
     }
   },
@@ -2731,6 +2784,12 @@ window.Aba5Propostas = {
         if (anterior.estoqueBaixado !== undefined) copia.estoqueBaixado = anterior.estoqueBaixado;
         if (anterior.movimentacaoEstoque !== undefined) {
           copia.movimentacaoEstoque = JSON.parse(JSON.stringify(anterior.movimentacaoEstoque));
+        }
+        if ((!copia.timelineNegociacao || copia.timelineNegociacao.length === 0) && Array.isArray(anterior.timelineNegociacao)) {
+          copia.timelineNegociacao = JSON.parse(JSON.stringify(anterior.timelineNegociacao));
+        }
+        if ((!copia.fluxoCaixa || copia.fluxoCaixa.length === 0) && Array.isArray(anterior.fluxoCaixa)) {
+          copia.fluxoCaixa = JSON.parse(JSON.stringify(anterior.fluxoCaixa));
         }
         Store.state.propostas[idx] = copia;
       } else {
@@ -4259,6 +4318,661 @@ window.Aba5Propostas = {
         `Propostas de ${cli ? cli.nome : 'cliente'} unificadas com sucesso! As ${totalVer} versões (v1..v${totalVer}) estão salvas no histórico desta proposta.`
       );
     }
+  },
+
+  formatarDataHoraBR(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return (
+        d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+        ' às ' +
+        d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      );
+    } catch {
+      return isoStr;
+    }
+  },
+
+  anotacaoEmEdicaoId: null,
+
+  renderBlocoTimelineNegociacao(p) {
+    const timeline = Array.isArray(p.timelineNegociacao) ? p.timelineNegociacao : [];
+
+    return `
+      <!-- BLOCO 6: Linha do Tempo & Histórico da Negociação -->
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-100">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <i data-lucide="history" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-base font-bold text-slate-900">6. Linha do Tempo da Negociação</h2>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">${timeline.length} registro(s)</span>
+              </div>
+              <p class="text-xs text-slate-500">Histórico de anotações, combinados com o cliente e decisões registradas com data e hora.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Campo para Adicionar Nova Anotação -->
+        <div class="bg-slate-50/80 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+          <label class="block text-xs font-bold text-slate-700">Nova Anotação ou Acordo Combinado:</label>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <textarea
+              id="input-nova-anotacao-timeline"
+              rows="2"
+              placeholder="Ex: Cliente pediu para incluir Aperol Spritz na degustação. Combinamos parcelar a entrada em 2x..."
+              class="input-minimal text-xs flex-1 bg-white"
+            ></textarea>
+            <button
+              type="button"
+              onclick="Aba5Propostas.adicionarAnotacaoTimeline()"
+              class="btn-primary py-2 px-4 text-xs font-bold shrink-0 self-end sm:self-auto flex items-center justify-center gap-1.5"
+            >
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>Adicionar Registro</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Listagem da Linha do Tempo -->
+        <div class="space-y-3">
+          ${
+            timeline.length === 0
+              ? `
+            <div class="p-6 text-center border border-dashed border-slate-200 rounded-xl text-slate-400">
+              <i data-lucide="message-square-plus" class="w-8 h-8 mx-auto mb-1.5 text-slate-300"></i>
+              <p class="text-xs font-medium">Nenhuma anotação registrada nesta proposta.</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">Use o campo acima para salvar observações importantes combinadas com o cliente.</p>
+            </div>
+          `
+              : `
+            <div class="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-indigo-200">
+              ${timeline
+                .map((item) => {
+                  const estaEditando = this.anotacaoEmEdicaoId === item.id;
+                  return `
+                  <div class="relative bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-2xs hover:border-indigo-300 transition group">
+                    <!-- Marcador Circular da Linha do Tempo -->
+                    <div class="absolute -left-[27px] top-3.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-600 shadow-xs"></div>
+
+                    <!-- Cabeçalho do Card de Anotação -->
+                    <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200/60 mb-2">
+                      <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50/80 px-2 py-0.5 rounded border border-indigo-200 font-mono">
+                          <i data-lucide="calendar" class="w-3 h-3"></i>
+                          <span>${this.formatarDataHoraBR(item.dataHora)}</span>
+                        </span>
+                        ${
+                          item.editadoEm
+                            ? `<span class="text-[10px] text-slate-400 italic" title="Editado em ${this.formatarDataHoraBR(item.editadoEm)}">(editado)</span>`
+                            : ''
+                        }
+                      </div>
+
+                      <div class="flex items-center gap-1 opacity-90 sm:opacity-0 group-hover:opacity-100 transition">
+                        ${
+                          estaEditando
+                            ? ''
+                            : `
+                          <button
+                            type="button"
+                            onclick="Aba5Propostas.iniciarEdicaoAnotacaoTimeline('${item.id}')"
+                            class="p-1 text-slate-400 hover:text-blue-600 hover:bg-white rounded transition"
+                            title="Editar anotação"
+                          >
+                            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                          </button>
+                        `
+                        }
+                        <button
+                          type="button"
+                          onclick="Aba5Propostas.excluirAnotacaoTimeline('${item.id}')"
+                          class="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded transition"
+                          title="Excluir anotação"
+                        >
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Conteúdo do Registro -->
+                    ${
+                      estaEditando
+                        ? `
+                      <div class="space-y-2 mt-2">
+                        <textarea
+                          id="input-editar-timeline-${item.id}"
+                          rows="3"
+                          class="input-minimal text-xs w-full bg-white"
+                        >${item.texto}</textarea>
+                        <div class="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onclick="Aba5Propostas.cancelarEdicaoAnotacaoTimeline()"
+                            class="btn-secondary py-1 px-2.5 text-xs"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onclick="Aba5Propostas.salvarEdicaoAnotacaoTimeline('${item.id}')"
+                            class="btn-primary py-1 px-3 text-xs bg-indigo-600 hover:bg-indigo-700"
+                          >
+                            Salvar Alteração
+                          </button>
+                        </div>
+                      </div>
+                    `
+                        : `
+                      <div class="text-xs text-slate-800 leading-relaxed whitespace-pre-line font-normal">
+                        ${item.texto}
+                      </div>
+                    `
+                    }
+                  </div>
+                `;
+                })
+                .join('')}
+            </div>
+          `
+          }
+        </div>
+      </div>
+    `;
+  },
+
+  renderBlocoFluxoCaixa(p, consolidado) {
+    const calc = Store.calcularFluxoCaixaProposta(p);
+    const movs = Array.isArray(p.fluxoCaixa) ? p.fluxoCaixa : [];
+
+    return `
+      <!-- BLOCO 7: Fluxo de Caixa do Evento & Gestão de Pagamentos -->
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <i data-lucide="wallet" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-base font-bold text-slate-900">7. Fluxo de Caixa & Pagamentos do Evento</h2>
+                <span class="text-xs px-2.5 py-0.5 rounded-full font-extrabold ${
+                  calc.statusPagamento === 'QUITADO'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : calc.statusPagamento === 'PARCIAL'
+                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                    : 'bg-slate-100 text-slate-600 border border-slate-300'
+                }">
+                  ${calc.percentualPago}% Pago
+                </span>
+              </div>
+              <p class="text-xs text-slate-500">Controle entradas (recebimentos do cliente) e saídas imediatas com saldo em caixa em tempo real.</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="Aba5Propostas.abrirModalNovaMovimentacao('ENTRADA')"
+              class="btn-primary py-1.5 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 flex items-center gap-1.5 shadow-xs"
+            >
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>+ Entrada (Recebimento)</span>
+            </button>
+            <button
+              type="button"
+              onclick="Aba5Propostas.abrirModalNovaMovimentacao('SAIDA')"
+              class="btn-secondary py-1.5 px-3 text-xs font-bold text-rose-700 hover:bg-rose-50 border-rose-200 flex items-center gap-1.5"
+            >
+              <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+              <span>- Saída (Despesa)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4 CARDS DE KPIs FINANCEIROS -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- 1. Valor Total da Proposta -->
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total do Evento</span>
+            <span class="text-base sm:text-lg font-black text-slate-900 font-mono mt-0.5 block">
+              ${Store.formatCurrency(calc.valorTotal)}
+            </span>
+            <span class="text-[10px] text-slate-400">Valor fechado da proposta</span>
+          </div>
+
+          <!-- 2. Total Recebido -->
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-700 block">Recebido (Entradas)</span>
+              <span class="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">${calc.percentualPago}%</span>
+            </div>
+            <span class="text-base sm:text-lg font-black text-emerald-700 font-mono mt-0.5 block">
+              ${Store.formatCurrency(calc.totalEntradas)}
+            </span>
+            <span class="text-[10px] text-emerald-600 font-medium">Sinal e parcelas pagas</span>
+          </div>
+
+          <!-- 3. Falta Pagar (Saldo Devedor) -->
+          <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-3">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">Falta Pagar</span>
+            <span class="text-base sm:text-lg font-black text-amber-700 font-mono mt-0.5 block">
+              ${Store.formatCurrency(calc.faltaPagar)}
+            </span>
+            <span class="text-[10px] text-amber-700 font-medium">
+              ${calc.faltaPagar === 0 ? '✅ 100% Quitado' : `${100 - calc.percentualPago}% pendente`}
+            </span>
+          </div>
+
+          <!-- 4. Saldo Atual em Caixa -->
+          <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-3">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">Saldo em Caixa</span>
+            <span class="text-base sm:text-lg font-black ${calc.saldoEmCaixa < 0 ? 'text-rose-600' : 'text-blue-700'} font-mono mt-0.5 block">
+              ${Store.formatCurrency(calc.saldoEmCaixa)}
+            </span>
+            <span class="text-[10px] text-blue-600 font-medium">Entradas menos saídas</span>
+          </div>
+        </div>
+
+        <!-- Barra de Progresso Visual de Quitação -->
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-700">
+            <span>Progresso dos Pagamentos do Cliente</span>
+            <span class="font-bold text-slate-900">${calc.percentualPago}% concluído (${Store.formatCurrency(calc.totalEntradas)} de ${Store.formatCurrency(calc.valorTotal)})</span>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+            <div
+              class="h-2.5 rounded-full transition-all duration-500 ${
+                calc.statusPagamento === 'QUITADO'
+                  ? 'bg-emerald-500'
+                  : calc.statusPagamento === 'PARCIAL'
+                  ? 'bg-blue-600'
+                  : 'bg-slate-300'
+              }"
+              style="width: ${calc.percentualPago}%"
+            ></div>
+          </div>
+        </div>
+
+        <!-- EXTRATO DE MOVIMENTAÇÕES (TABELA) -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Extrato de Lançamentos (${movs.length})</h3>
+            ${
+              movs.length > 0
+                ? `<span class="text-[11px] text-slate-500">Total de saídas registradas: <strong class="text-rose-600">${Store.formatCurrency(calc.totalSaidas)}</strong></span>`
+                : ''
+            }
+          </div>
+
+          ${
+            movs.length === 0
+              ? `
+            <div class="p-6 text-center border border-dashed border-slate-200 rounded-xl text-slate-400">
+              <i data-lucide="receipt" class="w-8 h-8 mx-auto mb-1.5 text-slate-300"></i>
+              <p class="text-xs font-medium">Nenhum lançamento no fluxo de caixa desta proposta.</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">Clique em "+ Entrada" acima para registrar o sinal de fechamento ou parcelas pagas.</p>
+            </div>
+          `
+              : `
+            <div class="overflow-x-auto rounded-xl border border-slate-200">
+              <table class="w-full text-left border-collapse table-clean text-xs">
+                <thead>
+                  <tr class="bg-slate-50 text-slate-600">
+                    <th class="py-2 px-3">Data / Hora</th>
+                    <th class="py-2 px-3">Tipo</th>
+                    <th class="py-2 px-3">Motivo / Descrição</th>
+                    <th class="py-2 px-3">Forma de Pagto</th>
+                    <th class="py-2 px-3 text-right">Valor</th>
+                    <th class="py-2 px-3 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${movs
+                    .map(
+                      (m) => `
+                    <tr class="hover:bg-slate-50/60 transition">
+                      <td class="py-2.5 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                        ${this.formatarDataHoraBR(m.dataHora)}
+                      </td>
+                      <td class="py-2.5 px-3 whitespace-nowrap">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          m.tipo === 'ENTRADA'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }">
+                          <i data-lucide="${m.tipo === 'ENTRADA' ? 'arrow-down-left' : 'arrow-up-right'}" class="w-3 h-3"></i>
+                          <span>${m.tipo === 'ENTRADA' ? 'Entrada' : 'Saída'}</span>
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-3 font-semibold text-slate-900">
+                        ${m.motivo || 'Sem descrição'}
+                      </td>
+                      <td class="py-2.5 px-3 text-slate-600">
+                        ${m.formaPagamento || 'Pix'}
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-mono font-black ${
+                        m.tipo === 'ENTRADA' ? 'text-emerald-700' : 'text-rose-600'
+                      }">
+                        ${m.tipo === 'ENTRADA' ? '+' : '-'}${Store.formatCurrency(m.valor)}
+                      </td>
+                      <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                        <button
+                          type="button"
+                          onclick="Aba5Propostas.excluirMovimentacaoCaixa('${m.id}')"
+                          class="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                          title="Excluir lançamento"
+                        >
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  `
+                    )
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          `
+          }
+        </div>
+      </div>
+    `;
+  },
+
+  adicionarAnotacaoTimeline() {
+    const p = this.propostaAtual;
+    if (!p) return;
+
+    const input = document.getElementById('input-nova-anotacao-timeline');
+    const texto = input ? input.value : '';
+
+    if (!texto || !texto.trim()) {
+      App.mostrarToast('Por favor, digite o texto da anotação.', 'warning');
+      return;
+    }
+
+    if (p.id) {
+      Store.adicionarAnotacaoTimeline(p.id, texto.trim());
+      const propGlobal = (Store.state.propostas || []).find((x) => x.id === p.id);
+      if (propGlobal) {
+        p.timelineNegociacao = propGlobal.timelineNegociacao;
+      }
+    } else {
+      if (!Array.isArray(p.timelineNegociacao)) p.timelineNegociacao = [];
+      p.timelineNegociacao.unshift({
+        id: 'tl-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        dataHora: new Date().toISOString(),
+        texto: texto.trim(),
+        editadoEm: null
+      });
+      Store.save();
+    }
+
+    this.render();
+    App.mostrarToast('Anotação registrada na linha do tempo!', 'success');
+  },
+
+  iniciarEdicaoAnotacaoTimeline(id) {
+    this.anotacaoEmEdicaoId = id;
+    this.render();
+    setTimeout(() => {
+      const el = document.getElementById(`input-editar-timeline-${id}`);
+      if (el) el.focus();
+    }, 50);
+  },
+
+  cancelarEdicaoAnotacaoTimeline() {
+    this.anotacaoEmEdicaoId = null;
+    this.render();
+  },
+
+  salvarEdicaoAnotacaoTimeline(id) {
+    const p = this.propostaAtual;
+    if (!p || !Array.isArray(p.timelineNegociacao)) return;
+
+    const el = document.getElementById(`input-editar-timeline-${id}`);
+    const novoTexto = el ? el.value : '';
+
+    if (!novoTexto || !novoTexto.trim()) {
+      App.mostrarToast('O texto da anotação não pode ficar vazio.', 'warning');
+      return;
+    }
+
+    if (p.id) {
+      Store.editarAnotacaoTimeline(p.id, id, novoTexto);
+      const propGlobal = (Store.state.propostas || []).find((x) => x.id === p.id);
+      if (propGlobal) {
+        p.timelineNegociacao = propGlobal.timelineNegociacao;
+      }
+    } else {
+      const item = p.timelineNegociacao.find((x) => x.id === id);
+      if (item) {
+        item.texto = novoTexto.trim();
+        item.editadoEm = new Date().toISOString();
+      }
+      Store.save();
+    }
+
+    this.anotacaoEmEdicaoId = null;
+    this.render();
+    App.mostrarToast('Anotação atualizada!', 'success');
+  },
+
+  excluirAnotacaoTimeline(id) {
+    if (!confirm('Deseja realmente excluir esta anotação da linha do tempo?')) return;
+
+    const p = this.propostaAtual;
+    if (!p || !Array.isArray(p.timelineNegociacao)) return;
+
+    if (p.id) {
+      Store.excluirAnotacaoTimeline(p.id, id);
+      const propGlobal = (Store.state.propostas || []).find((x) => x.id === p.id);
+      if (propGlobal) {
+        p.timelineNegociacao = propGlobal.timelineNegociacao;
+      }
+    } else {
+      const idx = p.timelineNegociacao.findIndex((x) => x.id === id);
+      if (idx !== -1) {
+        p.timelineNegociacao.splice(idx, 1);
+      }
+      Store.save();
+    }
+
+    this.render();
+    App.mostrarToast('Anotação excluída!', 'info');
+  },
+
+  abrirModalNovaMovimentacao(tipoPadrao = 'ENTRADA') {
+    const p = this.propostaAtual;
+    if (!p) return;
+
+    const calc = Store.calcularFluxoCaixaProposta(p);
+    const dataAtual = new Date().toISOString().slice(0, 16);
+
+    const html = `
+      <div class="p-6 space-y-4">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg ${tipoPadrao === 'ENTRADA' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} flex items-center justify-center font-bold">
+              <i data-lucide="${tipoPadrao === 'ENTRADA' ? 'arrow-down-left' : 'arrow-up-right'}" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Registrar Lançamento Financeiro</h3>
+              <p class="text-xs text-slate-500">${p.nomeEvento || 'Proposta'} • Total: ${Store.formatCurrency(calc.valorTotal)}</p>
+            </div>
+          </div>
+          <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <form id="form-movimentacao-caixa" onsubmit="Aba5Propostas.salvarMovimentacaoCaixa(event)" class="space-y-3.5">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Tipo de Movimentação:</label>
+              <select id="modal-mov-tipo" class="input-minimal text-xs font-semibold" onchange="Aba5Propostas.ajustarSugestaoMotivo(this.value)">
+                <option value="ENTRADA" ${tipoPadrao === 'ENTRADA' ? 'selected' : ''}>🟢 Entrada (Recebimento)</option>
+                <option value="SAIDA" ${tipoPadrao === 'SAIDA' ? 'selected' : ''}>🔴 Saída (Despesa do Evento)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Valor (R$):</label>
+              <input
+                type="number"
+                id="modal-mov-valor"
+                step="0.01"
+                min="0.01"
+                required
+                placeholder="0,00"
+                value="${tipoPadrao === 'ENTRADA' && calc.faltaPagar > 0 ? (calc.totalEntradas === 0 ? Math.round(calc.valorTotal * 0.5 * 100) / 100 : calc.faltaPagar) : ''}"
+                class="input-minimal text-xs font-mono font-bold text-slate-900"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Motivo / Descrição:</label>
+            <input
+              type="text"
+              id="modal-mov-motivo"
+              required
+              placeholder="${tipoPadrao === 'ENTRADA' ? 'Ex: Sinal de 50% para reserva de data' : 'Ex: Compra de gelo emergencial'}"
+              value="${tipoPadrao === 'ENTRADA' ? (calc.totalEntradas === 0 ? 'Sinal 50% (Reserva de Data)' : 'Segunda Parcela') : 'Despesa Operacional'}"
+              class="input-minimal text-xs"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Forma de Pagamento:</label>
+              <select id="modal-mov-forma" class="input-minimal text-xs">
+                <option value="Pix" selected>Pix</option>
+                <option value="Cartão de Crédito">Cartão de Crédito</option>
+                <option value="Cartão de Débito">Cartão de Débito</option>
+                <option value="Dinheiro">Dinheiro em Espécie</option>
+                <option value="Transferência / TED">Transferência / TED</option>
+                <option value="Boleto">Boleto Bancário</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Data e Hora:</label>
+              <input
+                type="datetime-local"
+                id="modal-mov-datahora"
+                value="${dataAtual}"
+                class="input-minimal text-xs font-mono"
+              />
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button type="button" onclick="App.fecharModal()" class="btn-secondary py-2 px-3 text-xs">
+              Cancelar
+            </button>
+            <button type="submit" class="btn-primary py-2 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700">
+              Salvar Lançamento
+            </button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    App.abrirModal(html);
+  },
+
+  ajustarSugestaoMotivo(tipo) {
+    const input = document.getElementById('modal-mov-motivo');
+    if (!input) return;
+    if (tipo === 'ENTRADA') {
+      input.placeholder = 'Ex: Sinal de 50% para reserva de data';
+      input.value = 'Pagamento do Cliente';
+    } else {
+      input.placeholder = 'Ex: Compra de gelo emergencial, frete extra...';
+      input.value = 'Despesa Operacional';
+    }
+  },
+
+  salvarMovimentacaoCaixa(event) {
+    if (event) event.preventDefault();
+    const p = this.propostaAtual;
+    if (!p) return;
+
+    const tipo = document.getElementById('modal-mov-tipo')?.value || 'ENTRADA';
+    const valorNum = parseFloat(document.getElementById('modal-mov-valor')?.value || '0');
+    const motivo = document.getElementById('modal-mov-motivo')?.value || '';
+    const forma = document.getElementById('modal-mov-forma')?.value || 'Pix';
+    const dataHoraRaw = document.getElementById('modal-mov-datahora')?.value;
+
+    if (!Number.isFinite(valorNum) || valorNum <= 0) {
+      App.mostrarToast('Por favor, informe um valor válido maior que zero.', 'warning');
+      return;
+    }
+
+    const dataHora = dataHoraRaw ? new Date(dataHoraRaw).toISOString() : new Date().toISOString();
+
+    const dadosMov = {
+      tipo,
+      valor: valorNum,
+      motivo: motivo.trim() || (tipo === 'SAIDA' ? 'Despesa Operacional' : 'Pagamento do Cliente'),
+      formaPagamento: forma,
+      dataHora
+    };
+
+    if (p.id) {
+      Store.adicionarMovimentacaoCaixa(p.id, dadosMov);
+      const propGlobal = (Store.state.propostas || []).find((x) => x.id === p.id);
+      if (propGlobal) {
+        p.fluxoCaixa = propGlobal.fluxoCaixa;
+      }
+    } else {
+      if (!Array.isArray(p.fluxoCaixa)) p.fluxoCaixa = [];
+      p.fluxoCaixa.unshift({
+        id: 'mov-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        ...dadosMov
+      });
+      Store.save();
+    }
+
+    App.fecharModal();
+    this.render();
+    if (window.Aba8Funil && App.abaAtiva === 'funil') {
+      window.Aba8Funil.render();
+    }
+    App.mostrarToast(`Lançamento de ${Store.formatCurrency(valorNum)} registrado com sucesso!`, 'success');
+  },
+
+  excluirMovimentacaoCaixa(movId) {
+    if (!confirm('Deseja realmente excluir este lançamento financeiro?')) return;
+
+    const p = this.propostaAtual;
+    if (!p || !Array.isArray(p.fluxoCaixa)) return;
+
+    if (p.id) {
+      Store.excluirMovimentacaoCaixa(p.id, movId);
+      const propGlobal = (Store.state.propostas || []).find((x) => x.id === p.id);
+      if (propGlobal) {
+        p.fluxoCaixa = propGlobal.fluxoCaixa;
+      }
+    } else {
+      const idx = p.fluxoCaixa.findIndex((x) => x.id === movId);
+      if (idx !== -1) {
+        p.fluxoCaixa.splice(idx, 1);
+      }
+      Store.save();
+    }
+
+    this.render();
+    if (window.Aba8Funil && App.abaAtiva === 'funil') {
+      window.Aba8Funil.render();
+    }
+    App.mostrarToast('Lançamento financeiro removido!', 'info');
   }
 };
 

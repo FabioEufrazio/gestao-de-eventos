@@ -678,12 +678,16 @@ window.Aba8Funil = {
     const temHistoricoVersoes = versoes.length > 1;
     const temCardsDuplicadosCliente = item.qtdOpcoesCliente > 1 && item.proposta?.clienteId;
 
+    const calcFinanceiro = Store.calcularFluxoCaixaProposta(item.proposta);
+    const notasTimeline = Array.isArray(item.proposta?.timelineNegociacao) ? item.proposta.timelineNegociacao : [];
+    const qtdNotas = notasTimeline.length;
+
     return `
       <div
         draggable="true"
         ondragstart="Aba8Funil.aoIniciarDragCard(event, '${item.id}')"
         onclick="Aba5Propostas.abrirParaEdicao('${item.id}')"
-        class="bg-white rounded-xl border border-slate-200/90 hover:border-blue-400 p-4 shadow-xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing group"
+        class="bg-white rounded-xl border border-slate-200/90 hover:border-blue-400 p-4 shadow-xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing group space-y-2.5"
         title="Clique para abrir a proposta ou arraste para outra coluna do funil"
       >
         <div class="flex items-start justify-between gap-3">
@@ -714,10 +718,76 @@ window.Aba8Funil = {
           </div>
         </div>
 
+        <!-- RESUMO FINANCEIRO & % PAGO NO CARD -->
+        <div class="pt-2 border-t border-slate-100 space-y-1.5">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold flex items-center gap-1 ${
+              calcFinanceiro.statusPagamento === 'QUITADO'
+                ? 'text-emerald-700'
+                : calcFinanceiro.statusPagamento === 'PARCIAL'
+                ? 'text-blue-700'
+                : 'text-slate-500'
+            }">
+              <i data-lucide="${calcFinanceiro.statusPagamento === 'QUITADO' ? 'check-circle' : 'circle-dollar-sign'}" class="w-3.5 h-3.5"></i>
+              <span>${calcFinanceiro.percentualPago}% pago</span>
+            </span>
+            <span class="text-[11px] font-semibold text-slate-500">
+              ${
+                calcFinanceiro.faltaPagar > 0
+                  ? `Falta <strong class="text-amber-700">${Store.formatCurrency(calcFinanceiro.faltaPagar)}</strong>`
+                  : '<span class="text-emerald-700 font-bold">100% Quitado</span>'
+              }
+            </span>
+          </div>
+
+          <!-- Barra de Progresso do Pagamento -->
+          <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              class="h-1.5 rounded-full transition-all duration-300 ${
+                calcFinanceiro.statusPagamento === 'QUITADO'
+                  ? 'bg-emerald-500'
+                  : calcFinanceiro.statusPagamento === 'PARCIAL'
+                  ? 'bg-blue-600'
+                  : 'bg-slate-300'
+              }"
+              style="width: ${Math.max(calcFinanceiro.percentualPago > 0 ? 3 : 0, calcFinanceiro.percentualPago)}%"
+            ></div>
+          </div>
+
+          <!-- Rodapé do Card: Saldo em Caixa + Botões de Atalho -->
+          <div class="flex items-center justify-between pt-1 text-[10px]">
+            <span class="text-slate-500 flex items-center gap-1 font-medium" title="Saldo líquido atual em caixa (Entradas - Saídas)">
+              <i data-lucide="wallet" class="w-3 h-3 text-slate-400"></i>
+              <span>Caixa: <strong class="${calcFinanceiro.saldoEmCaixa < 0 ? 'text-rose-600 font-bold' : 'text-slate-700 font-bold'}">${Store.formatCurrency(calcFinanceiro.saldoEmCaixa)}</strong></span>
+            </span>
+
+            <div class="flex items-center gap-1.5">
+              ${
+                qtdNotas > 0
+                  ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold" title="${qtdNotas} anotação(ões) na linha do tempo">
+                      <i data-lucide="message-square" class="w-2.5 h-2.5 text-indigo-600"></i>
+                      <span>${qtdNotas}</span>
+                    </span>`
+                  : ''
+              }
+
+              <button
+                type="button"
+                onclick="event.stopPropagation(); Aba8Funil.abrirModalRapido('${item.id}')"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 hover:border-blue-300 font-bold transition shadow-2xs cursor-pointer"
+                title="Abrir gestão rápida de pagamentos e anotações"
+              >
+                <i data-lucide="sliders-horizontal" class="w-3 h-3 text-blue-600"></i>
+                <span>Gestão Rápida</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         ${
           temCardsDuplicadosCliente
             ? `
-          <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+          <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
             <span class="text-[10px] text-amber-700 font-semibold">
               ${item.qtdOpcoesCliente} propostas p/ este cliente
             </span>
@@ -1012,6 +1082,339 @@ window.Aba8Funil = {
       window.Aba1Insumos.downloadBlob('\uFEFF' + headers + '\n' + rows, 'Funil_Comercial_Eventos.csv', 'text/csv;charset=utf-8;');
       App.mostrarToast('Relatório do Funil exportado em CSV!');
     }
+  },
+
+  abaModalRapidoAtiva: 'caixa',
+
+  formatarDataHoraBR(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return (
+        d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+        ' às ' +
+        d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      );
+    } catch {
+      return isoStr;
+    }
+  },
+
+  abrirModalRapido(propostaId, aba = null) {
+    const p = (Store.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p) {
+      App.mostrarToast('Proposta não encontrada.', 'warning');
+      return;
+    }
+
+    if (aba) this.abaModalRapidoAtiva = aba;
+    const abaAtiva = this.abaModalRapidoAtiva || 'caixa';
+    const cli = (Store.state.clientes || []).find((c) => c.id === p.clienteId);
+    const calc = Store.calcularFluxoCaixaProposta(p);
+    const timeline = Array.isArray(p.timelineNegociacao) ? p.timelineNegociacao : [];
+    const movs = Array.isArray(p.fluxoCaixa) ? p.fluxoCaixa : [];
+    const dataAtual = new Date().toISOString().slice(0, 16);
+
+    const html = `
+      <div class="p-6 space-y-4 max-w-2xl mx-auto">
+        <!-- Cabeçalho do Modal -->
+        <div class="flex items-start justify-between pb-3 border-b border-slate-100">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">${p.codigo || 'PROP'}</span>
+              <h3 class="text-base font-extrabold text-slate-900">${this.esc(p.nomeEvento || 'Evento')}</h3>
+            </div>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Cliente: <strong class="text-slate-800">${this.esc(cli ? cli.nome : 'Sem cliente')}</strong>
+              ${cli && cli.contato ? ` • Tel: ${this.esc(cli.contato)}` : ''}
+            </p>
+          </div>
+          <button type="button" onclick="App.fecharModal()" class="text-slate-400 hover:text-slate-600 p-1">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- Alternador de Abas do Modal Rápido -->
+        <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              onclick="Aba8Funil.abrirModalRapido('${p.id}', 'caixa')"
+              class="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                abaAtiva === 'caixa'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }"
+            >
+              <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+              <span>Fluxo de Caixa (${calc.percentualPago}% Pago)</span>
+            </button>
+
+            <button
+              type="button"
+              onclick="Aba8Funil.abrirModalRapido('${p.id}', 'timeline')"
+              class="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+                abaAtiva === 'timeline'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }"
+            >
+              <i data-lucide="history" class="w-3.5 h-3.5"></i>
+              <span>Linha do Tempo (${timeline.length})</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onclick="App.fecharModal(); Aba5Propostas.abrirParaEdicao('${p.id}')"
+            class="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+          >
+            <span>Abrir Proposta Completa</span>
+            <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- CONTEÚDO DA ABA SELECIONADA -->
+        ${
+          abaAtiva === 'caixa'
+            ? `
+          <!-- CONTEÚDO DO FLUXO DE CAIXA -->
+          <div class="space-y-4">
+            <!-- 4 Cards Resumo -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Proposta</span>
+                <span class="text-sm sm:text-base font-black text-slate-900 font-mono block">${Store.formatCurrency(calc.valorTotal)}</span>
+              </div>
+              <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-2.5">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Recebido (${calc.percentualPago}%)</span>
+                <span class="text-sm sm:text-base font-black text-emerald-700 font-mono block">${Store.formatCurrency(calc.totalEntradas)}</span>
+              </div>
+              <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-2.5">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">Falta Pagar</span>
+                <span class="text-sm sm:text-base font-black text-amber-700 font-mono block">${Store.formatCurrency(calc.faltaPagar)}</span>
+              </div>
+              <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-2.5">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-blue-800 block">Saldo em Caixa</span>
+                <span class="text-sm sm:text-base font-black ${calc.saldoEmCaixa < 0 ? 'text-rose-600' : 'text-blue-700'} font-mono block">${Store.formatCurrency(calc.saldoEmCaixa)}</span>
+              </div>
+            </div>
+
+            <!-- Barra de Progresso -->
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700">
+                <span>Progresso do Pagamento</span>
+                <span>${calc.percentualPago}% concluído</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div class="h-2 rounded-full ${calc.statusPagamento === 'QUITADO' ? 'bg-emerald-500' : 'bg-blue-600'}" style="width: ${calc.percentualPago}%"></div>
+              </div>
+            </div>
+
+            <!-- Formulário Rápido de Lançamento -->
+            <form onsubmit="Aba8Funil.salvarMovimentacaoRapida(event, '${p.id}')" class="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-2.5">
+              <span class="block text-xs font-bold text-slate-700">+ Novo Lançamento Financeiro:</span>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <select id="modal-rapido-tipo" class="input-minimal py-1 px-2 text-xs font-semibold">
+                  <option value="ENTRADA">🟢 Entrada (Recebimento)</option>
+                  <option value="SAIDA">🔴 Saída (Despesa)</option>
+                </select>
+                <input
+                  type="number"
+                  id="modal-rapido-valor"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="Valor R$"
+                  class="input-minimal py-1 px-2 text-xs font-mono font-bold"
+                />
+                <input
+                  type="text"
+                  id="modal-rapido-motivo"
+                  required
+                  placeholder="Motivo (ex: Sinal 50%, Gelo)"
+                  class="input-minimal py-1 px-2 text-xs"
+                />
+                <button type="submit" class="btn-primary py-1 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 justify-center">
+                  Salvar
+                </button>
+              </div>
+            </form>
+
+            <!-- Lista de Movimentações -->
+            <div class="space-y-1 max-h-48 overflow-y-auto">
+              ${
+                movs.length === 0
+                  ? `<p class="text-xs text-slate-400 text-center py-4">Nenhum lançamento no caixa deste evento.</p>`
+                  : movs
+                      .map(
+                        (m) => `
+                    <div class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-100 text-xs hover:border-slate-300 transition">
+                      <div class="flex items-center gap-2">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold ${m.tipo === 'ENTRADA' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">
+                          ${m.tipo === 'ENTRADA' ? 'Entrada' : 'Saída'}
+                        </span>
+                        <span class="font-semibold text-slate-800">${this.esc(m.motivo)}</span>
+                        <span class="text-[10px] text-slate-400 font-mono">${this.formatarDataHoraBR(m.dataHora)}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span class="font-mono font-bold ${m.tipo === 'ENTRADA' ? 'text-emerald-700' : 'text-rose-600'}">
+                          ${m.tipo === 'ENTRADA' ? '+' : '-'}${Store.formatCurrency(m.valor)}
+                        </span>
+                        <button
+                          type="button"
+                          onclick="Aba8Funil.excluirMovimentacaoRapida('${p.id}', '${m.id}')"
+                          class="text-slate-400 hover:text-rose-600 p-0.5"
+                          title="Excluir"
+                        >
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      </div>
+                    </div>
+                  `
+                      )
+                      .join('')
+              }
+            </div>
+          </div>
+        `
+            : `
+          <!-- CONTEÚDO DA LINHA DO TEMPO -->
+          <div class="space-y-4">
+            <!-- Formulário Rápido de Anotação -->
+            <div class="space-y-2">
+              <label class="block text-xs font-bold text-slate-700">Nova Anotação ou Acordo Combinado:</label>
+              <div class="flex gap-2">
+                <textarea
+                  id="modal-rapido-input-timeline"
+                  rows="2"
+                  placeholder="Ex: Cliente confirmou degustação. Solicitou desconto para fechar à vista..."
+                  class="input-minimal text-xs flex-1"
+                ></textarea>
+                <button
+                  type="button"
+                  onclick="Aba8Funil.adicionarAnotacaoRapida('${p.id}')"
+                  class="btn-primary py-2 px-3 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 shrink-0 self-end"
+                >
+                  Adicionar
+                </button>
+              </div>
+            </div>
+
+            <!-- Lista da Linha do Tempo -->
+            <div class="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+              ${
+                timeline.length === 0
+                  ? `<p class="text-xs text-slate-400 text-center py-6">Nenhuma anotação registrada ainda.</p>`
+                  : timeline
+                      .map(
+                        (item) => `
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                      <div class="flex items-center justify-between text-[11px] text-slate-500 pb-1 border-b border-slate-100">
+                        <span class="font-bold text-indigo-700 font-mono">${this.formatarDataHoraBR(item.dataHora)}</span>
+                        <button
+                          type="button"
+                          onclick="Aba8Funil.excluirAnotacaoRapida('${p.id}', '${item.id}')"
+                          class="text-slate-400 hover:text-rose-600"
+                          title="Excluir"
+                        >
+                          <i data-lucide="trash-2" class="w-3 h-3"></i>
+                        </button>
+                      </div>
+                      <div class="text-slate-800 whitespace-pre-line leading-relaxed font-normal">${this.esc(item.texto)}</div>
+                    </div>
+                  `
+                      )
+                      .join('')
+              }
+            </div>
+          </div>
+        `
+        }
+      </div>
+    `;
+
+    App.abrirModal(html);
+  },
+
+  salvarMovimentacaoRapida(event, propostaId) {
+    if (event) event.preventDefault();
+    const tipo = document.getElementById('modal-rapido-tipo')?.value || 'ENTRADA';
+    const valorNum = parseFloat(document.getElementById('modal-rapido-valor')?.value || '0');
+    const motivo = document.getElementById('modal-rapido-motivo')?.value || '';
+
+    if (!Number.isFinite(valorNum) || valorNum <= 0) {
+      App.mostrarToast('Por favor, informe um valor válido.', 'warning');
+      return;
+    }
+
+    Store.adicionarMovimentacaoCaixa(propostaId, {
+      tipo,
+      valor: valorNum,
+      motivo,
+      formaPagamento: 'Pix',
+      dataHora: new Date().toISOString()
+    });
+
+    this.render();
+    if (window.Aba5Propostas && Aba5Propostas.propostaAtual && Aba5Propostas.propostaAtual.id === propostaId) {
+      Aba5Propostas.propostaAtual = JSON.parse(
+        JSON.stringify(Store.state.propostas.find((x) => x.id === propostaId))
+      );
+      if (App.abaAtiva === 'propostas') Aba5Propostas.render();
+    }
+    this.abrirModalRapido(propostaId, 'caixa');
+    App.mostrarToast('Lançamento registrado com sucesso!', 'success');
+  },
+
+  excluirMovimentacaoRapida(propostaId, movId) {
+    if (!confirm('Deseja excluir este lançamento?')) return;
+    Store.excluirMovimentacaoCaixa(propostaId, movId);
+    this.render();
+    if (window.Aba5Propostas && Aba5Propostas.propostaAtual && Aba5Propostas.propostaAtual.id === propostaId) {
+      Aba5Propostas.propostaAtual = JSON.parse(
+        JSON.stringify(Store.state.propostas.find((x) => x.id === propostaId))
+      );
+      if (App.abaAtiva === 'propostas') Aba5Propostas.render();
+    }
+    this.abrirModalRapido(propostaId, 'caixa');
+    App.mostrarToast('Lançamento excluído!', 'info');
+  },
+
+  adicionarAnotacaoRapida(propostaId) {
+    const el = document.getElementById('modal-rapido-input-timeline');
+    const texto = el ? el.value : '';
+
+    if (!texto || !texto.trim()) {
+      App.mostrarToast('Digite o texto da anotação.', 'warning');
+      return;
+    }
+
+    Store.adicionarAnotacaoTimeline(propostaId, texto.trim());
+    this.render();
+    if (window.Aba5Propostas && Aba5Propostas.propostaAtual && Aba5Propostas.propostaAtual.id === propostaId) {
+      Aba5Propostas.propostaAtual = JSON.parse(
+        JSON.stringify(Store.state.propostas.find((x) => x.id === propostaId))
+      );
+      if (App.abaAtiva === 'propostas') Aba5Propostas.render();
+    }
+    this.abrirModalRapido(propostaId, 'timeline');
+    App.mostrarToast('Anotação registrada!', 'success');
+  },
+
+  excluirAnotacaoRapida(propostaId, timelineId) {
+    if (!confirm('Deseja excluir esta anotação?')) return;
+    Store.excluirAnotacaoTimeline(propostaId, timelineId);
+    this.render();
+    if (window.Aba5Propostas && Aba5Propostas.propostaAtual && Aba5Propostas.propostaAtual.id === propostaId) {
+      Aba5Propostas.propostaAtual = JSON.parse(
+        JSON.stringify(Store.state.propostas.find((x) => x.id === propostaId))
+      );
+      if (App.abaAtiva === 'propostas') Aba5Propostas.render();
+    }
+    this.abrirModalRapido(propostaId, 'timeline');
+    App.mostrarToast('Anotação excluída!', 'info');
   }
 };
 

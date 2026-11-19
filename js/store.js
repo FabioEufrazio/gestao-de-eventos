@@ -1288,9 +1288,35 @@ window.Store = {
               ? JSON.parse(JSON.stringify(p.escalacaoBebidas))
               : {},
           versoesNegociacao: Array.isArray(p.versoesNegociacao) ? p.versoesNegociacao : [],
-          versaoAtivaId: p.versaoAtivaId ? String(p.versaoAtivaId) : ''
+          versaoAtivaId: p.versaoAtivaId ? String(p.versaoAtivaId) : '',
+          timelineNegociacao: Array.isArray(p.timelineNegociacao) ? p.timelineNegociacao : [],
+          fluxoCaixa: Array.isArray(p.fluxoCaixa) ? p.fluxoCaixa : []
         };
       });
+
+    // Sanitização e desduplicação de anotações e movimentações financeiras
+    this.state.propostas.forEach((prop) => {
+      if (Array.isArray(prop.timelineNegociacao)) {
+        const vistos = new Set();
+        prop.timelineNegociacao = prop.timelineNegociacao.filter((nota) => {
+          if (!nota || !nota.texto) return false;
+          const chave = (nota.texto || '').trim() + '_' + String(nota.dataHora || '').slice(0, 16);
+          if (vistos.has(chave)) return false;
+          vistos.add(chave);
+          return true;
+        });
+      }
+      if (Array.isArray(prop.fluxoCaixa)) {
+        const vistosMov = new Set();
+        prop.fluxoCaixa = prop.fluxoCaixa.filter((m) => {
+          if (!m || !m.valor) return false;
+          const chave = m.tipo + '_' + m.valor + '_' + (m.motivo || '').trim() + '_' + String(m.dataHora || '').slice(0, 16);
+          if (vistosMov.has(chave)) return false;
+          vistosMov.add(chave);
+          return true;
+        });
+      }
+    });
 
     // Garantir que propostas salvas no histórico mantenham fixadas as bebidas que estavam titulares na época
     this.state.propostas.forEach((prop) => {
@@ -2856,6 +2882,179 @@ window.Store = {
       duracaoHoras,
       numConvidados
     };
+  },
+
+  /**
+   * Consolida métricas financeiras de entradas, saídas, saldo em caixa e quanto falta pagar da proposta
+   */
+  calcularFluxoCaixaProposta(p) {
+    if (!p) {
+      return {
+        valorTotal: 0,
+        totalEntradas: 0,
+        totalSaidas: 0,
+        saldoEmCaixa: 0,
+        faltaPagar: 0,
+        percentualPago: 0,
+        statusPagamento: 'PENDENTE'
+      };
+    }
+
+    const consolidado = this.consolidarProposta(p);
+    const valorTotal = Number(consolidado.custoTotalEvento) || 0;
+
+    const movs = Array.isArray(p.fluxoCaixa) ? p.fluxoCaixa : [];
+    let totalEntradas = 0;
+    let totalSaidas = 0;
+
+    movs.forEach((m) => {
+      const v = Number(m.valor) || 0;
+      if (m.tipo === 'ENTRADA') {
+        totalEntradas += v;
+      } else if (m.tipo === 'SAIDA') {
+        totalSaidas += v;
+      }
+    });
+
+    const saldoEmCaixa = totalEntradas - totalSaidas;
+    const faltaPagar = Math.max(0, valorTotal - totalEntradas);
+    const percentualPago =
+      valorTotal > 0
+        ? Math.min(100, Math.round((totalEntradas / valorTotal) * 100))
+        : totalEntradas > 0
+        ? 100
+        : 0;
+
+    let statusPagamento = 'PENDENTE';
+    if (totalEntradas >= valorTotal && valorTotal > 0) {
+      statusPagamento = 'QUITADO';
+    } else if (totalEntradas > 0) {
+      statusPagamento = 'PARCIAL';
+    }
+
+    return {
+      valorTotal,
+      totalEntradas,
+      totalSaidas,
+      saldoEmCaixa,
+      faltaPagar,
+      percentualPago,
+      statusPagamento
+    };
+  },
+
+  /**
+   * Adiciona anotação com data e hora na Linha do Tempo da proposta
+   */
+  adicionarAnotacaoTimeline(propostaId, texto) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p || !texto || !texto.trim()) return null;
+    if (!Array.isArray(p.timelineNegociacao)) p.timelineNegociacao = [];
+
+    const item = {
+      id: 'tl-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      dataHora: new Date().toISOString(),
+      texto: texto.trim(),
+      editadoEm: null
+    };
+
+    p.timelineNegociacao.unshift(item);
+    this.save();
+    return item;
+  },
+
+  /**
+   * Edita o texto de uma anotação existente na Linha do Tempo
+   */
+  editarAnotacaoTimeline(propostaId, timelineId, novoTexto) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p || !Array.isArray(p.timelineNegociacao) || !novoTexto || !novoTexto.trim()) return false;
+
+    const item = p.timelineNegociacao.find((x) => x.id === timelineId);
+    if (!item) return false;
+
+    item.texto = novoTexto.trim();
+    item.editadoEm = new Date().toISOString();
+    this.save();
+    return true;
+  },
+
+  /**
+   * Exclui uma anotação da Linha do Tempo
+   */
+  excluirAnotacaoTimeline(propostaId, timelineId) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p || !Array.isArray(p.timelineNegociacao)) return false;
+
+    const idx = p.timelineNegociacao.findIndex((x) => x.id === timelineId);
+    if (idx === -1) return false;
+
+    p.timelineNegociacao.splice(idx, 1);
+    this.save();
+    return true;
+  },
+
+  /**
+   * Adiciona movimentação financeira (Entrada ou Saída) ao Fluxo de Caixa da proposta
+   */
+  adicionarMovimentacaoCaixa(propostaId, { tipo, valor, motivo, dataHora, formaPagamento }) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p) return null;
+    if (!Array.isArray(p.fluxoCaixa)) p.fluxoCaixa = [];
+
+    const v = Number(valor);
+    if (!Number.isFinite(v) || v <= 0) return null;
+
+    const item = {
+      id: 'mov-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      tipo: tipo === 'SAIDA' ? 'SAIDA' : 'ENTRADA',
+      valor: v,
+      motivo: (motivo || '').trim() || (tipo === 'SAIDA' ? 'Despesa Operacional' : 'Pagamento do Cliente'),
+      dataHora: dataHora || new Date().toISOString(),
+      formaPagamento: formaPagamento || 'Pix'
+    };
+
+    p.fluxoCaixa.unshift(item);
+    this.save();
+    return item;
+  },
+
+  /**
+   * Edita uma movimentação existente no Fluxo de Caixa
+   */
+  editarMovimentacaoCaixa(propostaId, movId, dados) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p || !Array.isArray(p.fluxoCaixa)) return false;
+
+    const item = p.fluxoCaixa.find((x) => x.id === movId);
+    if (!item) return false;
+
+    if (dados.tipo) item.tipo = dados.tipo === 'SAIDA' ? 'SAIDA' : 'ENTRADA';
+    if (dados.valor !== undefined) {
+      const v = Number(dados.valor);
+      if (Number.isFinite(v) && v > 0) item.valor = v;
+    }
+    if (dados.motivo !== undefined) item.motivo = String(dados.motivo).trim();
+    if (dados.dataHora) item.dataHora = dados.dataHora;
+    if (dados.formaPagamento) item.formaPagamento = dados.formaPagamento;
+
+    this.save();
+    return true;
+  },
+
+  /**
+   * Exclui uma movimentação financeira do Fluxo de Caixa
+   */
+  excluirMovimentacaoCaixa(propostaId, movId) {
+    const p = (this.state.propostas || []).find((x) => x.id === propostaId);
+    if (!p || !Array.isArray(p.fluxoCaixa)) return false;
+
+    const idx = p.fluxoCaixa.findIndex((x) => x.id === movId);
+    if (idx === -1) return false;
+
+    p.fluxoCaixa.splice(idx, 1);
+    this.save();
+    return true;
   },
 
   /**

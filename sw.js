@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestao-eventos-cache-v45';
+const CACHE_NAME = 'gestao-eventos-cache-v47';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
