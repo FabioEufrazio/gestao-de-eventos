@@ -1550,6 +1550,12 @@ window.Store = {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
       window.dispatchEvent(new CustomEvent('store-updated'));
+
+      // Dispara sincronização em nuvem (Firebase Firestore) em segundo plano
+      if (window.FirebaseService && typeof window.FirebaseService.agendarSincronizacao === 'function') {
+        window.FirebaseService.agendarSincronizacao();
+      }
+
       return true;
     } catch (e) {
       console.error('Erro ao salvar estado no LocalStorage:', e);

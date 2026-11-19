@@ -1,8 +1,9 @@
-const CACHE_NAME = 'gestao-eventos-cache-v44';
+const CACHE_NAME = 'gestao-eventos-cache-v45';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './css/styles.css',
+  './js/firebase-service.js',
   './js/store.js',
   './js/aba1-insumos.js',
   './js/aba2-servicos.js',
