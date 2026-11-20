@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestao-eventos-cache-v48';
+const CACHE_NAME = 'gestao-eventos-cache-v50';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const ASSETS_TO_CACHE = [
   './js/aba7-utensilios.js',
   './js/aba8-funil.js',
   './js/pdf-generator.js',
+  './js/tela-home.js',
   './js/app.js',
   './manifest.json'
 ];

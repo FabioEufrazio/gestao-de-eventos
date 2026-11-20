@@ -6,6 +6,49 @@ window.Aba5Propostas = {
   filtroBuscaLista: '',
   filtroStatusLista: 'TODOS',
   painelFinanceiroRecuado: localStorage.getItem('calc_painel_recuado') === 'true',
+  snapshotReferencia: null,
+
+  atualizarSnapshotReferencia() {
+    if (!this.propostaAtual) {
+      this.snapshotReferencia = null;
+      return;
+    }
+    this.snapshotReferencia = this.gerarSnapshotComparacao(this.propostaAtual);
+  },
+
+  gerarSnapshotComparacao(p) {
+    if (!p) return null;
+    return JSON.stringify({
+      id: p.id || null,
+      clienteId: p.clienteId || '',
+      nomeEvento: (p.nomeEvento || '').trim(),
+      dataEvento: p.dataEvento || '',
+      localEvento: (p.localEvento || '').trim(),
+      numConvidados: Number(p.numConvidados) || 100,
+      duracaoHoras: Number(p.duracaoHoras) || 6,
+      linhaInsumos: p.linhaInsumos || 'A',
+      qtdBartenders: Number(p.qtdBartenders) || 2,
+      escalacaoBebidas: p.escalacaoBebidas || {},
+      coqueteis: (p.coqueteis || []).map((c) => c.drinqueId).sort(),
+      servicos: (p.servicos || [])
+        .map((s) => ({
+          servicoId: s.servicoId,
+          quantidade: Number(s.quantidade) || 0,
+          valorUnitario: Number(s.valorUnitario) || 0
+        }))
+        .sort((a, b) => String(a.servicoId).localeCompare(String(b.servicoId))),
+      perifericos: (p.perifericos || [])
+        .map((per) => ({
+          insumoId: per.insumoId,
+          quantidade: Number(per.quantidade) || 0
+        }))
+        .sort((a, b) => String(a.insumoId).localeCompare(String(b.insumoId))),
+      observacoesProposta: (p.observacoesProposta || '').trim(),
+      status: p.status || 'Em Aberto',
+      ajustesInsumosCoqueteis: p.ajustesInsumosCoqueteis || {},
+      fatoresConsumoPersonalizados: p.fatoresConsumoPersonalizados || {}
+    });
+  },
 
   togglePainelFinanceiro() {
     this.painelFinanceiroRecuado = !this.painelFinanceiroRecuado;
@@ -54,6 +97,9 @@ window.Aba5Propostas = {
     }
 
     this.sincronizarIntegridadePropostaAtual();
+    if (!this.snapshotReferencia) {
+      this.atualizarSnapshotReferencia();
+    }
     const p = this.propostaAtual;
 
     // Sincroniza o gelo da proposta pelo consumo dos bartenders caso ainda tenha o valor antigo
@@ -202,6 +248,17 @@ window.Aba5Propostas = {
 
         <!-- Direita: Botões de Ação (Mantidos) -->
         <div class="flex flex-wrap items-center gap-2 shrink-0 lg:self-center">
+          <!-- Início (Home) -->
+          <button
+            type="button"
+            onclick="App.navegarPara('home')"
+            class="btn-secondary text-xs py-2 px-3 font-semibold text-slate-700 hover:text-blue-600 hover:border-blue-300"
+            title="Voltar para a Tela Inicial (Home)"
+          >
+            <i data-lucide="home" class="w-4 h-4 text-blue-600"></i>
+            <span>Início</span>
+          </button>
+
           <!-- Histórico / Ver Todas -->
           <button
             type="button"
@@ -2510,35 +2567,32 @@ window.Aba5Propostas = {
   temConteudoRelevante(prop = this.propostaAtual) {
     if (!prop) return false;
 
-    // Se for uma proposta já salva no histórico, verifica se houve modificações em relação ao Store
+    // Se for uma proposta já salva no histórico (com ID):
+    // Só exibe confirmação se o usuário tiver feito modificações reais em relação ao snapshot carregado
     if (prop.id) {
-      const original = (Store.state.propostas || []).find((p) => p.id === prop.id);
-      if (!original) return true;
-      return JSON.stringify(prop) !== JSON.stringify(original);
+      if (!this.snapshotReferencia) {
+        const original = (Store.state.propostas || []).find((p) => p.id === prop.id);
+        if (original) {
+          this.snapshotReferencia = this.gerarSnapshotComparacao(original);
+        }
+      }
+
+      if (this.snapshotReferencia) {
+        const atual = this.gerarSnapshotComparacao(prop);
+        return atual !== this.snapshotReferencia;
+      }
+      return false;
     }
 
     // Se for uma proposta nova (ainda não salva no histórico):
+    // Só avisa se o usuário tiver preenchido campos importantes
+    const temCliente = Boolean(prop.clienteId);
     const temCoqueteis = Array.isArray(prop.coqueteis) && prop.coqueteis.length > 0;
     const temNome = Boolean(prop.nomeEvento && prop.nomeEvento.trim());
-    const temCliente = Boolean(prop.clienteId);
     const temLocal = Boolean(prop.localEvento && prop.localEvento.trim());
-    const temPerifericos = Array.isArray(prop.perifericos) && prop.perifericos.length > 0;
     const temServicos = Array.isArray(prop.servicos) && prop.servicos.length > 0;
-    const temFatoresCustom =
-      prop.fatoresConsumoPersonalizados && Object.keys(prop.fatoresConsumoPersonalizados).length > 0;
-    const temAjustes =
-      prop.ajustesInsumosCoqueteis && Object.keys(prop.ajustesInsumosCoqueteis).length > 0;
 
-    return (
-      temCoqueteis ||
-      temNome ||
-      temCliente ||
-      temLocal ||
-      temPerifericos ||
-      temServicos ||
-      temFatoresCustom ||
-      temAjustes
-    );
+    return temCliente || temCoqueteis || temNome || temLocal || temServicos;
   },
 
   abrirModalConfirmacaoNovaProposta(destinoPropostaId = '__NOVA__') {
@@ -2654,6 +2708,8 @@ window.Aba5Propostas = {
   executarCriacaoNovaProposta() {
     this.propostaAtual = this.initPropostaVazia();
     this.modoVisualizacao = 'EDITOR';
+    this.sincronizarIntegridadePropostaAtual();
+    this.atualizarSnapshotReferencia();
     this.render();
     App.mostrarToast(`Formulário limpo pronto para a nova proposta ${this.propostaAtual.codigo}.`);
   },
@@ -2663,6 +2719,8 @@ window.Aba5Propostas = {
     if (prop) {
       this.propostaAtual = JSON.parse(JSON.stringify(prop));
       this.modoVisualizacao = 'EDITOR';
+      this.sincronizarIntegridadePropostaAtual();
+      this.atualizarSnapshotReferencia();
       this.render();
       App.mostrarToast(`Proposta ${prop.codigo} carregada com sucesso.`);
     }
@@ -2811,6 +2869,7 @@ window.Aba5Propostas = {
     }
 
     Store.save();
+    this.atualizarSnapshotReferencia();
     this.render();
     const qtdVer = Array.isArray(p.versoesNegociacao) ? p.versoesNegociacao.length : 1;
     App.mostrarToast(
@@ -2905,6 +2964,8 @@ window.Aba5Propostas = {
     if (!prop) return;
     this.propostaAtual = JSON.parse(JSON.stringify(prop));
     this.modoVisualizacao = 'EDITOR';
+    this.sincronizarIntegridadePropostaAtual();
+    this.atualizarSnapshotReferencia();
     if (window.App && window.App.abaAtiva !== 'propostas') {
       window.App.navegarPara('propostas');
     } else {
@@ -2957,6 +3018,15 @@ window.Aba5Propostas = {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onclick="App.navegarPara('home')"
+            class="btn-secondary text-xs py-2 px-3.5 font-bold flex items-center gap-1.5 text-slate-700 hover:text-blue-600 hover:border-blue-300"
+            title="Voltar para a Tela Inicial (Home)"
+          >
+            <i data-lucide="home" class="w-4 h-4 text-blue-600"></i>
+            <span>Início</span>
+          </button>
           ${
             propostaAtual
               ? `

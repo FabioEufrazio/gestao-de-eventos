@@ -1,13 +1,13 @@
 // Controlador Principal da Aplicação (SPA Shell, Navegação, Modais e Notificações)
 
 window.App = {
-  abaAtiva: 'propostas',
+  abaAtiva: 'home',
 
   init() {
     Store.init();
     this.carregarPreferenciaSidebar();
     this.atualizarBadgesMenu();
-    this.navegarPara('propostas');
+    this.navegarPara('home');
 
     window.addEventListener('store-updated', () => {
       this.atualizarBadgesMenu();
@@ -71,6 +71,9 @@ window.App = {
 
     // Renderizar aba correspondente
     switch (abaId) {
+      case 'home':
+        if (window.TelaHome) TelaHome.render();
+        break;
       case 'insumos':
         Aba1Insumos.render();
         break;
